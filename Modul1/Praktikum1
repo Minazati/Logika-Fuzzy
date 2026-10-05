@@ -1,1 +1,361 @@
+import numpy as np
+import matplotlib.pyplot as plt
 
+
+# ============================================================
+# 1. FUNGSI KARAKTERISTIK CRISP
+# ============================================================
+def crisp_memuaskan(x, theta=4.0):
+    """
+    Fungsi karakteristik Crisp/Boolean.
+
+    μ(x) = 1, jika x >= theta
+           0, jika x < theta
+    """
+    return np.where(x >= theta, 1, 0)
+
+
+# ============================================================
+# 2. FUNGSI KEANGGOTAAN FUZZY LINEAR NAIK
+# ============================================================
+def fuzzy_memuaskan(x, a=2.5, b=4.5):
+    """
+    Fungsi keanggotaan fuzzy linear naik.
+
+    μ(x) = 0                  , x < a
+         = (x-a)/(b-a)        , a <= x <= b
+         = 1                  , x > b
+    """
+
+    x = np.asarray(x)
+
+    return np.where(
+        x < a,
+        0,
+        np.where(
+            x <= b,
+            (x - a) / (b - a),
+            1
+        )
+    )
+
+
+# ============================================================
+# 3. DOMAIN / SEMESTA PEMBICARAAN
+# ============================================================
+x = np.linspace(1, 5, 500)
+
+
+# ============================================================
+# 4. HITUNG NILAI CRISP DAN FUZZY
+# ============================================================
+crisp = crisp_memuaskan(x)
+fuzzy = fuzzy_memuaskan(x)
+
+
+# ============================================================
+# 5. MENAMPILKAN GRAFIK PERBANDINGAN
+# ============================================================
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    x,
+    crisp,
+    label="Logika Crisp",
+    linewidth=3
+)
+
+plt.plot(
+    x,
+    fuzzy,
+    label="Logika Fuzzy",
+    linewidth=3
+)
+
+# Garis ambang Crisp
+plt.axvline(
+    x=4.0,
+    linestyle="--",
+    linewidth=1.5,
+    label="Ambang Crisp = 4.0"
+)
+
+# Titik batas fuzzy
+plt.axvline(
+    x=2.5,
+    linestyle=":",
+    linewidth=1.5,
+    label="Batas Fuzzy = 2.5"
+)
+
+plt.axvline(
+    x=4.5,
+    linestyle=":",
+    linewidth=1.5,
+    label="Batas Fuzzy = 4.5"
+)
+
+plt.title(
+    "Perbandingan Fungsi Keanggotaan Crisp dan Fuzzy",
+    fontsize=14
+)
+
+plt.xlabel("Rating Layanan", fontsize=12)
+plt.ylabel("Derajat Keanggotaan μ(x)", fontsize=12)
+
+plt.xticks(np.arange(1, 5.1, 0.5))
+plt.yticks(np.arange(0, 1.1, 0.1))
+
+plt.ylim(-0.05, 1.1)
+plt.grid(True, linestyle="--", alpha=0.5)
+plt.legend()
+
+plt.show()
+
+
+# ============================================================
+# 6. PENGUJIAN NILAI TERTENTU
+# ============================================================
+
+nilai_uji = [2.0, 2.5, 3.0, 3.9, 4.0, 4.1, 4.5, 5.0]
+
+print("=" * 65)
+print("PERBANDINGAN CRISP DAN FUZZY - LAYANAN MEMUASKAN")
+print("=" * 65)
+
+print(
+    f"{'Rating':<10}"
+    f"{'Crisp':<15}"
+    f"{'Fuzzy':<15}"
+)
+
+print("-" * 65)
+
+for nilai in nilai_uji:
+
+    nilai_crisp = crisp_memuaskan(nilai)
+    nilai_fuzzy = fuzzy_memuaskan(nilai)
+
+    print(
+        f"{nilai:<10.1f}"
+        f"{nilai_crisp:<15.3f}"
+        f"{nilai_fuzzy:<15.3f}"
+    )
+
+
+
+
+###########
+
+test_values = [3.8, 3.9, 3.99, 4.0, 4.01, 4.2]
+
+print(f"{'Rating':<8} | {'Crisp':<8} | {'Fuzzy mu(x)':<12} | {'Interpretasi Fuzzy'}")
+print("-" * 55)
+for val in test_values:
+    c_val = float(crisp_memuaskan(val))
+    f_val = float(fuzzy_memuaskan(val))
+    interpretasi = f"Tingkat pemenuhan {f_val*100:.1f}%"
+    print(f"{val:<8.2f} | {c_val:<8.1f} | {f_val:<12.3f} | {interpretasi}")
+
+
+###########
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# Fungsi Crisp
+def crisp(x):
+    return np.where(x >= 8, 1, 0)
+
+
+# Fungsi Fuzzy Linear Naik
+def fuzzy_linear(x):
+    return np.where(
+        x < 4,
+        0,
+        np.where(
+            x <= 12,
+            (x - 4) / (12 - 4),
+            1
+        )
+    )
+
+
+# Fungsi Fuzzy Sigmoid
+def fuzzy_sigmoid(x, x0=3.5, k=2.0):
+    return 1 / (1 + np.exp(-k * (x - x0)))
+
+
+# Domain waktu 0 sampai 24 jam
+x = np.linspace(0, 24, 500)
+
+
+# Hitung masing-masing fungsi
+y_crisp = crisp(x)
+y_linear = fuzzy_linear(x)
+y_sigmoid = fuzzy_sigmoid(x)
+
+
+# Grafik
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    x,
+    y_crisp,
+    label="Crisp",
+    linewidth=2
+)
+
+plt.plot(
+    x,
+    y_linear,
+    label="Fuzzy Linear",
+    linewidth=2
+)
+
+plt.plot(
+    x,
+    y_sigmoid,
+    label="Fuzzy Sigmoid",
+    linewidth=2
+)
+
+
+plt.xlabel("Waktu Tunggu (Jam)")
+plt.ylabel("Derajat Keanggotaan")
+plt.title("Perbandingan Crisp, Fuzzy Linear, dan Fuzzy Sigmoid")
+
+plt.xlim(0, 24)
+plt.ylim(-0.05, 1.05)
+
+plt.grid(True, linestyle="--", alpha=0.5)
+plt.legend()
+
+plt.show()
+
+
+###########
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# ============================================================
+# 1. RANCANG LOGIKA CRISP
+# Batas waktu >= 8 jam sebagai tiket kritis
+# ============================================================
+
+def crisp_kritis(waktu):
+    if waktu >= 8:
+        return 1
+    else:
+        return 0
+
+
+# ============================================================
+# 2. RANCANG LOGIKA FUZZY
+#
+# Waktu < 4 jam       : derajat kritis = 0
+# 4 <= waktu <= 12    : derajat kritis naik secara linear
+# Waktu > 12 jam      : derajat kritis = 1
+#
+# Persamaan:
+#
+#       0,                 x < 4
+# μ(x)= (x - 4) / (12-4),  4 <= x <= 12
+#       1,                 x > 12
+# ============================================================
+
+def fuzzy_kritis(waktu):
+    if waktu < 4:
+        return 0
+    elif waktu <= 12:
+        return (waktu - 4) / (12 - 4)
+    else:
+        return 1
+
+
+# ============================================================
+# 3. IMPLEMENTASI DALAM PYTHON
+# Pengujian data:
+# 2, 4, 6, 7.9, 8.0, 8.1, 10, 12, 16, 24 jam
+# ============================================================
+
+data_uji = [2, 4, 6, 7.9, 8.0, 8.1, 10, 12, 16, 24]
+
+
+# ============================================================
+# TABEL PERBANDINGAN CRISP DAN FUZZY
+# ============================================================
+
+print("=" * 55)
+print("PERBANDINGAN LOGIKA CRISP DAN FUZZY")
+print("Sistem Prioritas Tiket Helpdesk TI")
+print("=" * 55)
+
+print(
+    f"{'Waktu (jam)':<15}"
+    f"{'Crisp':<15}"
+    f"{'Fuzzy':<15}"
+)
+
+print("-" * 55)
+
+for waktu in data_uji:
+    hasil_crisp = crisp_kritis(waktu)
+    hasil_fuzzy = fuzzy_kritis(waktu)
+
+    print(
+        f"{waktu:<15.1f}"
+        f"{hasil_crisp:<15}"
+        f"{hasil_fuzzy:<15.3f}"
+    )
+
+
+# ============================================================
+# 4. VISUALISASIKAN
+# Membuat grafik perbandingan Crisp dan Fuzzy
+# ============================================================
+
+waktu = np.linspace(0, 24, 500)
+
+nilai_crisp = [crisp_kritis(x) for x in waktu]
+nilai_fuzzy = [fuzzy_kritis(x) for x in waktu]
+
+
+plt.figure(figsize=(10, 6))
+
+plt.plot(
+    waktu,
+    nilai_crisp,
+    label="Logika Crisp",
+    linewidth=2
+)
+
+plt.plot(
+    waktu,
+    nilai_fuzzy,
+    label="Logika Fuzzy",
+    linewidth=2
+)
+
+plt.xlabel("Waktu Tunggu Penyelesaian Tiket (Jam)")
+plt.ylabel("Derajat Kritis")
+plt.title("Perbandingan Logika Crisp dan Fuzzy\nSistem Prioritas Tiket Helpdesk TI")
+
+plt.xlim(0, 24)
+plt.ylim(-0.05, 1.05)
+
+plt.grid(True, linestyle="--", alpha=0.5)
+plt.legend()
+
+# Menyimpan grafik dalam format PNG
+plt.savefig(
+    "perbandingan_crisp_fuzzy.png",
+    format="png",
+    dpi=300,
+    bbox_inches="tight"
+)
+
+plt.show()
