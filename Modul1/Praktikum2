@@ -1,0 +1,437 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# ======================================================================
+# 1. FUNGSI KEANGGOTAAN (Membership Function)
+# ======================================================================
+def trapesium_turun(x, a, b):
+    """Bahu kiri (trapesium turun).
+    mu = 1 untuk x <= a ; (b - x)/(b - a) untuk a < x < b ; 0 untuk x >= b
+    """
+    x = np.asarray(x, dtype=float)
+    return np.where(x <= a, 1.0,
+           np.where(x >= b, 0.0, (b - x) / (b - a)))
+
+
+def segitiga(x, a, b, c):
+    """Kurva segitiga (a, b, c).
+    mu = 0 untuk x <= a atau x >= c ;
+         (x - a)/(b - a) untuk a < x <= b ;
+         (c - x)/(c - b) untuk b < x < c
+    """
+    x = np.asarray(x, dtype=float)
+    naik = (x - a) / (b - a)
+    turun = (c - x) / (c - b)
+    return np.where((x <= a) | (x >= c), 0.0,
+           np.where(x <= b, naik, turun))
+
+
+def trapesium_naik(x, a, b):
+    """Bahu kanan (trapesium naik).
+    mu = 0 untuk x <= a ; (x - a)/(b - a) untuk a < x < b ; 1 untuk x >= b
+    """
+    x = np.asarray(x, dtype=float)
+    return np.where(x <= a, 0.0,
+           np.where(x >= b, 1.0, (x - a) / (b - a)))
+
+
+# ======================================================================
+# 2. STRUKTUR DATA VARIABEL LINGUISTIK  (x, T(x), U, G, M)
+# ======================================================================
+waktu_respons = {
+    "nama": "Waktu Respons",                       # x  : nama variabel
+    "semesta": (0, 10),                            # U  : semesta pembicaraan [0, 10] detik
+    "satuan": "detik",
+    "aturan_sintaktis": "sangat <label>, agak <label>",   # G : tata bahasa (hedge)
+    "terms": {                                     # T(x) : himpunan term + M (pemetaan semantik)
+        "Cepat": {
+            "tipe": "bahu_kiri",
+            "param": (2, 4),
+            "fungsi": lambda x: trapesium_turun(x, 2, 4),
+        },
+        "Sedang": {
+            "tipe": "segitiga",
+            "param": (3, 5, 7),
+            "fungsi": lambda x: segitiga(x, 3, 5, 7),
+        },
+        "Lambat": {
+            "tipe": "bahu_kanan",
+            "param": (6, 8),
+            "fungsi": lambda x: trapesium_naik(x, 6, 8),
+        },
+    },
+}
+
+
+def info_variabel(var):
+    """Menampilkan komponen variabel linguistik (x, T(x), U, G, M)."""
+    print("=" * 62)
+    print("KOMPONEN VARIABEL LINGUISTIK")
+    print("=" * 62)
+    print(f"1) Nama Variabel (x)        : {var['nama']}")
+    print(f"2) Himpunan Term T(x)       : {', '.join(var['terms'].keys())}")
+    u = var["semesta"]
+    print(f"3) Semesta Pembicaraan (U)  : [{u[0]}, {u[1]}] {var['satuan']}")
+    print(f"4) Aturan Sintaktis (G)     : {var['aturan_sintaktis']}")
+    print("5) Aturan Semantik (M)      :")
+    for nama, t in var["terms"].items():
+        print(f"     - {nama:<7} -> {t['tipe']:<10} param={t['param']}")
+    print()
+
+
+# ======================================================================
+# 3. DOMAIN HIMPUNAN FUZZY  (daerah dengan mu(x) > 0)
+# ======================================================================
+def domain_term(var, nama_term, resolusi=0.001):
+    """Domain = rentang x pada semesta dengan derajat keanggotaan > 0."""
+    u0, u1 = var["semesta"]
+    x = np.arange(u0, u1 + resolusi, resolusi)
+    mu = var["terms"][nama_term]["fungsi"](x)
+    aktif = x[mu > 0]
+    if aktif.size == 0:
+        return None
+    return round(float(aktif.min()), 3), round(float(aktif.max()), 3)
+
+
+# ======================================================================
+# 4. FUZZIFIKASI
+# ======================================================================
+def fuzzifikasi(var, x_crisp):
+    """Mengubah input crisp menjadi derajat keanggotaan tiap label."""
+    u0, u1 = var["semesta"]
+    if not (u0 <= x_crisp <= u1):
+        raise ValueError(f"Input {x_crisp} di luar semesta [{u0}, {u1}]")
+    return {nama: float(t["fungsi"](x_crisp)) for nama, t in var["terms"].items()}
+
+
+def label_dominan(hasil):
+    """Label dengan derajat keanggotaan tertinggi (bisa lebih dari satu jika sama)."""
+    maks = max(hasil.values())
+    if maks == 0:
+        return [], 0.0
+    return [k for k, v in hasil.items() if np.isclose(v, maks)], maks
+
+
+def cetak_fuzzifikasi(var, x_crisp):
+    hasil = fuzzifikasi(var, x_crisp)
+    print(f"Input crisp x = {x_crisp} {var['satuan']}")
+    for nama, mu in hasil.items():
+        print(f"  mu_{nama}({x_crisp}) = {mu:.2f}")
+    aktif = {k: v for k, v in hasil.items() if v > 0}
+    teks = " dan ".join(f"{k} dengan derajat {v:.2f}" for k, v in aktif.items())
+    print(f"  Hasil Fuzzifikasi: sistem mengenali kondisi sebagai {teks}.")
+    dom, nilai = label_dominan(hasil)
+    if len(dom) == 1:
+        print(f"  Label dominan    : {dom[0]} ({nilai:.2f})")
+    elif len(dom) > 1:
+        print(f"  Label dominan    : {' = '.join(dom)} (seri, derajat {nilai:.2f})")
+    print()
+    return hasil
+
+
+# ======================================================================
+# 5. ANALISIS DAERAH TUMPANG TINDIH (OVERLAPPING)
+# ======================================================================
+def analisis_overlap(var, resolusi=0.001):
+    """Mencari interval x di mana dua label (atau lebih) sama-sama mu > 0."""
+    u0, u1 = var["semesta"]
+    x = np.arange(u0, u1 + resolusi, resolusi)
+    nama = list(var["terms"].keys())
+    mu = {n: var["terms"][n]["fungsi"](x) for n in nama}
+
+    print("=" * 62)
+    print("ANALISIS DAERAH TUMPANG TINDIH (OVERLAPPING)")
+    print("=" * 62)
+    hasil = []
+    for i in range(len(nama)):
+        for j in range(i + 1, len(nama)):
+            a, b = nama[i], nama[j]
+            irisan = (mu[a] > 0) & (mu[b] > 0)
+            if irisan.any():
+                lo, hi = x[irisan].min(), x[irisan].max()
+                # titik potong: tempat mu_a ~ mu_b di dalam daerah overlap
+                idx = np.argmin(np.abs(mu[a][irisan] - mu[b][irisan]))
+                x_pot = x[irisan][idx]
+                mu_pot = mu[a][irisan][idx]
+                print(f"- {a} & {b}: x dalam ({lo:.2f}, {hi:.2f}) {var['satuan']}")
+                print(f"    titik potong x = {x_pot:.2f}, mu = {mu_pot:.2f}")
+                hasil.append((a, b, lo, hi, x_pot, mu_pot))
+            else:
+                print(f"- {a} & {b}: tidak ada overlap")
+
+    # Cek celah: x yang tidak dimiliki label manapun (mu semua = 0)
+    kosong = np.all([mu[n] == 0 for n in nama], axis=0)
+    print()
+    if kosong.any():
+        print("PERINGATAN: ada nilai input tanpa representasi label (mu = 0 semua):")
+        print("  x =", np.round(x[kosong][[0, -1]], 2))
+    else:
+        print("Tidak ada celah: setiap nilai pada semesta punya minimal satu label.")
+    print()
+    return hasil
+
+
+# ======================================================================
+# 6. VISUALISASI
+# ======================================================================
+def plot_variabel(var, titik_input=None, simpan="grafik_waktu_respons.png", tampil=True):
+    u0, u1 = var["semesta"]
+    x = np.linspace(u0, u1, 1001)
+    warna = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for (nama, t), c in zip(var["terms"].items(), warna):
+        mu = t["fungsi"](x)
+        ax.plot(x, mu, label=nama, color=c, linewidth=2)
+        ax.fill_between(x, mu, alpha=0.12, color=c)
+
+    if titik_input is not None:
+        hasil = fuzzifikasi(var, titik_input)
+        ax.axvline(titik_input, color="gray", linestyle="--", linewidth=1)
+        for (nama, mu_val), c in zip(hasil.items(), warna):
+            if mu_val > 0:
+                ax.plot(titik_input, mu_val, "o", color=c)
+                ax.annotate(f"{mu_val:.2f}", (titik_input, mu_val),
+                            textcoords="offset points", xytext=(8, 4), fontsize=9)
+
+    ax.set_title(f"Variabel Linguistik: {var['nama'].upper()} "
+                 f"(Semesta U: [{u0}, {u1}] {var['satuan']})")
+    ax.set_xlabel(f"x ({var['satuan']})")
+    ax.set_ylabel(r"$\mu(x)$")
+    ax.set_xlim(u0, u1)
+    ax.set_ylim(-0.05, 1.1)
+    ax.set_xticks(range(u0, u1 + 1))
+    ax.grid(alpha=0.3)
+    ax.legend(title="Label")
+    fig.tight_layout()
+    if simpan:
+        fig.savefig(simpan, dpi=150)
+        print(f"Grafik disimpan ke: {simpan}")
+    if tampil:
+        plt.show()
+    plt.close(fig)
+
+
+# ======================================================================
+# PROGRAM UTAMA
+# ======================================================================
+if __name__ == "__main__":
+    info_variabel(waktu_respons)
+
+    print("=" * 62)
+    print("DOMAIN HIMPUNAN FUZZY (mu(x) > 0)")
+    print("=" * 62)
+    for nama in waktu_respons["terms"]:
+        d = domain_term(waktu_respons, nama)
+        print(f"  {nama:<7}: {d[0]} < x < {d[1]}  (batas di mana mu > 0)")
+    print()
+
+    print("=" * 62)
+    print("PERHITUNGAN FUZZIFIKASI")
+    print("=" * 62)
+    cetak_fuzzifikasi(waktu_respons, 3.5)    # contoh pada materi: Cepat 0.25, Sedang 0.25
+    for nilai in [1.0, 5.0, 6.5, 9.0]:       # contoh input tambahan
+        cetak_fuzzifikasi(waktu_respons, nilai)
+
+    analisis_overlap(waktu_respons)
+
+    plot_variabel(waktu_respons, titik_input=3.5)
+
+
+
+############
+
+
+# ======================================================================
+# E. SKENARIO PENGUJIAN FUZZIFIKASI
+# ======================================================================
+skenario_input = [1.0, 2.5, 3.5, 5.0, 6.5, 7.5, 9.0]
+
+# Nilai yang diharapkan sesuai tabel di materi: (Cepat, Sedang, Lambat, Label Dominan)
+harapan = {
+    1.0: (1.000, 0.000, 0.000, "Cepat"),
+    2.5: (0.750, 0.000, 0.000, "Cepat"),
+    3.5: (0.250, 0.250, 0.000, "Imbang (Cepat/Sedang)"),
+    5.0: (0.000, 1.000, 0.000, "Sedang"),
+    6.5: (0.000, 0.250, 0.250, "Imbang (Sedang/Lambat)"),
+    7.5: (0.000, 0.000, 0.750, "Lambat"),
+    9.0: (0.000, 0.000, 1.000, "Lambat"),
+}
+
+
+def tentukan_label(hasil):
+    """Label dominan; jika derajat tertinggi sama -> 'Imbang (A/B)'."""
+    dom, _ = label_dominan(hasil)
+    if len(dom) == 1:
+        return dom[0]
+    if len(dom) > 1:
+        return f"Imbang ({'/'.join(dom)})"
+    return "-"
+
+
+def jalankan_skenario(var, daftar_input):
+    print("=" * 84)
+    print("E. SKENARIO PENGUJIAN FUZZIFIKASI")
+    print("=" * 84)
+    print(f"{'No':<4}{'Input (x)':<11}{'mu Cepat':<11}{'mu Sedang':<11}"
+          f"{'mu Lambat':<11}{'Label Dominan':<26}{'Cocok?'}")
+    print("-" * 84)
+
+    semua_cocok = True
+    for no, x in enumerate(daftar_input, start=1):
+        h = fuzzifikasi(var, x)
+        label = tentukan_label(h)
+
+        # Verifikasi terhadap tabel di materi
+        c, s, l, lbl = harapan[x]
+        cocok = (np.isclose(h["Cepat"], c) and np.isclose(h["Sedang"], s)
+                 and np.isclose(h["Lambat"], l) and label == lbl)
+        semua_cocok &= bool(cocok)
+
+        print(f"{no:<4}{str(x) + ' s':<11}{h['Cepat']:<11.3f}{h['Sedang']:<11.3f}"
+              f"{h['Lambat']:<11.3f}{label:<26}{'OK' if cocok else 'BEDA'}")
+
+    print("-" * 84)
+    print("Semua hasil sesuai tabel materi." if semua_cocok
+          else "Ada hasil yang berbeda dari tabel materi!")
+    print()
+
+
+# ---------------- Jalankan ----------------
+if __name__ == "__main__":
+    jalankan_skenario(waktu_respons, skenario_input)
+
+
+
+##############
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# ======================================================================
+# FUNGSI KEANGGOTAAN
+# ======================================================================
+def bahu_kiri(x, a, b):
+    """mu = 1 untuk x <= a ; (b - x)/(b - a) untuk a < x < b ; 0 untuk x >= b"""
+    x = np.asarray(x, dtype=float)
+    return np.where(x <= a, 1.0,
+           np.where(x >= b, 0.0, (b - x) / (b - a)))
+
+
+def segitiga(x, a, b, c):
+    """mu = 0 di luar (a, c) ; naik a->b ; turun b->c"""
+    x = np.asarray(x, dtype=float)
+    naik = (x - a) / (b - a)
+    turun = (c - x) / (c - b)
+    return np.where((x <= a) | (x >= c), 0.0,
+           np.where(x <= b, naik, turun))
+
+
+def bahu_kanan(x, a, b):
+    """mu = 0 untuk x <= a ; (x - a)/(b - a) untuk a < x < b ; 1 untuk x >= b"""
+    x = np.asarray(x, dtype=float)
+    return np.where(x <= a, 0.0,
+           np.where(x >= b, 1.0, (x - a) / (b - a)))
+
+
+# ======================================================================
+# VARIABEL LINGUISTIK: PENGGUNAAN CPU SERVER
+# ======================================================================
+cpu_utilization = {
+    "nama": "Penggunaan CPU Server (CPU Utilization)",
+    "semesta": (0, 100),
+    "satuan": "%",
+    "terms": {
+        "Rendah": {"tipe": "bahu_kiri",  "param": (20, 40),
+                   "fungsi": lambda x: bahu_kiri(x, 20, 40)},
+        "Normal": {"tipe": "segitiga",   "param": (30, 50, 70),
+                   "fungsi": lambda x: segitiga(x, 30, 50, 70)},
+        "Tinggi": {"tipe": "bahu_kanan", "param": (60, 80),
+                   "fungsi": lambda x: bahu_kanan(x, 60, 80)},
+    },
+}
+
+
+# ======================================================================
+# FUZZIFIKASI
+# ======================================================================
+def fuzzifikasi(var, x_crisp):
+    u0, u1 = var["semesta"]
+    if not (u0 <= x_crisp <= u1):
+        raise ValueError(f"Input {x_crisp} di luar semesta [{u0}, {u1}]")
+    return {nama: float(t["fungsi"](x_crisp)) for nama, t in var["terms"].items()}
+
+
+def tentukan_label(hasil):
+    """Label dengan mu tertinggi; jika seri -> 'Imbang (A/B)'."""
+    maks = max(hasil.values())
+    if maks == 0:
+        return "-"
+    dom = [k for k, v in hasil.items() if np.isclose(v, maks)]
+    return dom[0] if len(dom) == 1 else f"Imbang ({'/'.join(dom)})"
+
+
+def tampilkan_tabel(var, daftar_input):
+    nama = list(var["terms"].keys())
+    print("=" * 66)
+    print(f"TABEL FUZZIFIKASI - {var['nama']}")
+    print("=" * 66)
+    print(f"{'No':<4}{'Input (x)':<12}" + "".join(f"{'mu ' + n:<12}" for n in nama)
+          + "Label Dominan")
+    print("-" * 66)
+    for no, x in enumerate(daftar_input, start=1):
+        h = fuzzifikasi(var, x)
+        print(f"{no:<4}{str(x) + var['satuan']:<12}"
+              + "".join(f"{h[n]:<12.3f}" for n in nama)
+              + tentukan_label(h))
+    print()
+
+
+# ======================================================================
+# PLOT
+# ======================================================================
+def plot_variabel(var, titik_input=None, simpan="grafik_cpu_utilization.png"):
+    u0, u1 = var["semesta"]
+    x = np.linspace(u0, u1, 1001)
+    warna = {"Rendah": "tab:green", "Normal": "tab:blue", "Tinggi": "tab:red"}
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    for nama, t in var["terms"].items():
+        mu = t["fungsi"](x)
+        ax.plot(x, mu, label=nama, color=warna[nama], linewidth=2.5)
+        ax.fill_between(x, mu, alpha=0.12, color=warna[nama])
+
+    if titik_input:
+        for xi in titik_input:
+            ax.axvline(xi, color="gray", linestyle="--", linewidth=1)
+            for nama, mu_val in fuzzifikasi(var, xi).items():
+                if mu_val > 0:
+                    ax.plot(xi, mu_val, "o", color=warna[nama], markersize=8)
+                    ax.annotate(f"{mu_val:.2f}", (xi, mu_val),
+                                textcoords="offset points", xytext=(8, 6), fontsize=10)
+
+    ax.set_title("Variabel Linguistik: PENGGUNAAN CPU SERVER (Semesta U: [0, 100] %)")
+    ax.set_xlabel("Beban CPU (%)")
+    ax.set_ylabel(r"$\mu(x)$")
+    ax.set_xlim(u0, u1)
+    ax.set_ylim(-0.05, 1.1)
+    ax.set_xticks(range(0, 101, 10))
+    ax.grid(alpha=0.3)
+    ax.legend(title="Label")
+    fig.tight_layout()
+    fig.savefig(simpan, dpi=150)
+    print(f"Grafik disimpan ke: {simpan}")
+    plt.show()
+
+
+# ======================================================================
+# PROGRAM UTAMA
+# ======================================================================
+if __name__ == "__main__":
+    input_uji = [10]          # input beban CPU sesuai soal; tambah nilai lain jika perlu
+
+    tampilkan_tabel(cpu_utilization, input_uji)
+    plot_variabel(cpu_utilization, titik_input=input_uji)
