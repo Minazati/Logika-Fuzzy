@@ -1,0 +1,118 @@
+# ======================================================================
+# D. FUNGSI KEANGGOTAAN DALAM PYTHON
+# Fungsi keanggotaan Remaja, titik: (10,0), (12,1), (15,1), (17,0)
+# ======================================================================
+
+def fungsi_naik(x):
+    """Interval 10 <= x <= 12
+    Titik (10,0) dan (12,1) -> mu(x) = (x - 10) / 2
+    """
+    return (x - 10) / 2
+
+
+def fungsi_konstan(x):
+    """Interval 12 <= x <= 15
+    Derajat keanggotaan stabil di 1 (bagian atas trapesium)
+    """
+    return 1.0
+
+
+def fungsi_turun(x):
+    """Interval 15 <= x <= 17
+    Titik (15,1) dan (17,0) -> mu(x) = (17 - x) / 2
+    """
+    return (17 - x) / 2
+
+
+def keanggotaan_remaja(x):
+    """Fungsi keanggotaan Remaja secara utuh (empat bagian):
+    1. x < 10            -> 0
+    2. 10 <= x <= 12     -> fungsi naik
+    3. 12 < x < 15       -> 1
+    4. 15 <= x <= 17     -> fungsi turun
+    5. x > 17            -> 0
+    """
+    if x < 10 or x > 17:
+        return 0.0
+    elif x <= 12:
+        return fungsi_naik(x)
+    elif x < 15:
+        return fungsi_konstan(x)
+    else:
+        return fungsi_turun(x)
+
+
+# ======================================================================
+# PENGUJIAN: bandingkan hasil fungsi dengan perhitungan manual
+# ======================================================================
+if __name__ == "__main__":
+    # (input x, hasil manual yang diharapkan)
+    uji = [
+        (9,    0.0),    # sebelum 10
+        (10,   0.0),    # (10-10)/2
+        (11,   0.5),    # (11-10)/2
+        (12,   1.0),    # (12-10)/2
+        (13.5, 1.0),    # bagian konstan
+        (15,   1.0),    # (17-15)/2
+        (16,   0.5),    # (17-16)/2
+        (17,   0.0),    # (17-17)/2
+        (18,   0.0),    # setelah 17
+    ]
+
+    print(f"{'No':<4}{'x':<8}{'mu(x)':<10}{'Manual':<10}Cocok?")
+    print("-" * 38)
+    for no, (x, manual) in enumerate(uji, start=1):
+        mu = keanggotaan_remaja(x)
+        cocok = "OK" if abs(mu - manual) < 1e-9 else "BEDA"
+        print(f"{no:<4}{x:<8g}{mu:<10.3f}{manual:<10.3f}{cocok}")
+
+
+
+
+################
+E.
+
+
+CREATE DATABASE IF NOT EXISTS fuzzy_modul1;
+USE fuzzy_modul1;
+
+CREATE TABLE IF NOT EXISTS fungsi_keanggotaan (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    batas_bawah  DOUBLE      NOT NULL,
+    batas_atas   DOUBLE      NOT NULL,
+    nama_fungsi  VARCHAR(50) NOT NULL
+);
+
+INSERT INTO fungsi_keanggotaan (batas_bawah, batas_atas, nama_fungsi) VALUES
+    (10, 12, 'fungsi_naik'),
+    (12, 15, 'fungsi_konstan'),
+    (15, 17, 'fungsi_turun');
+
+
+
+################
+G. 
+
+
+CREATE TABLE usia_remaja (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usia_min INT NOT NULL,
+    usia_max INT NOT NULL,
+    nilai_fuzzy VARCHAR(50) NOT NULL
+);
+
+
+
+############
+H.
+
+
+INSERT INTO usia_remaja
+(usia_min, usia_max, nilai_fuzzy)
+VALUES
+(0, 10, '0'),
+(10, 12, 'fungsi_remaja_naik'),
+(12, 15, '1'),
+(15, 17, 'fungsi_remaja_turun'),
+(17, 150, '0');
+
