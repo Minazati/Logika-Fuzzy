@@ -1,0 +1,349 @@
+"""
+Asesmen Modul 1 - Pemodelan Fuzzy (Tahap 1: Modeling)
+Topik : Sistem Penilaian Kualitas Jaringan Internet (QoS)
+        Input  : Latensi (ms), Jitter (ms), Packet Loss (%)
+        Output : Kualitas Jaringan (poin 0-100)
+
+Implementasi murni Python + NumPy (tanpa scikit-fuzzy). Matplotlib hanya
+dipakai untuk visualisasi.
+
+Cara menjalankan:
+    python fuzzy_qos.py
+Keluaran:
+    gambar/*.png            -> grafik tiap variabel + grafik gabungan
+    hasil_fuzzifikasi.csv   -> tabel hasil pengujian
+"""
+
+import csv
+import os
+from dataclasses import dataclass, field
+
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")  # backend tanpa layar, aman dijalankan di server
+import matplotlib.pyplot as plt
+
+DIR_KELUARAN = os.path.dirname(os.path.abspath(__file__))
+DIR_GAMBAR = os.path.join(DIR_KELUARAN, "gambar")
+
+
+# =============================================================================
+# 1. FUNGSI KEANGGOTAAN (implementasi manual)
+# =============================================================================
+def trapmf(x, a, b, c, d):
+    """Trapesium [a, b, c, d]. Bahu kiri: a == b. Bahu kanan: c == d."""
+    x = np.asarray(x, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        naik = np.where(x >= b, 1.0, np.where(x <= a, 0.0, (x - a) / (b - a)))
+        turun = np.where(x <= c, 1.0, np.where(x >= d, 0.0, (d - x) / (d - c)))
+    return np.clip(np.minimum(naik, turun), 0.0, 1.0)
+
+
+def trimf(x, a, b, c):
+    """Segitiga [a, b, c] = trapesium dengan b == c pada puncak."""
+    return trapmf(x, a, b, b, c)
+
+
+def gaussmf(x, m, s):
+    """Gaussian dengan rata-rata m dan simpangan baku s."""
+    x = np.asarray(x, dtype=float)
+    return np.exp(-((x - m) ** 2) / (2.0 * s ** 2))
+
+
+def sigmf(x, a, c):
+    """Sigmoid: a > 0 kurva naik, a < 0 kurva turun, c = titik tengah (mu = 0,5)."""
+    x = np.asarray(x, dtype=float)
+    return 1.0 / (1.0 + np.exp(-a * (x - c)))
+
+
+FUNGSI = {"trap": trapmf, "tri": trimf, "gauss": gaussmf, "sig": sigmf}
+
+
+# =============================================================================
+# 2. PEMODELAN VARIABEL LINGUISTIK
+# =============================================================================
+@dataclass
+class Himpunan:
+    """Satu label linguistik: nama, jenis kurva, dan parameternya."""
+    label: str
+    jenis: str
+    param: tuple
+
+    def mu(self, x):
+        return FUNGSI[self.jenis](x, *self.param)
+
+
+@dataclass
+class VariabelLinguistik:
+    nama: str
+    satuan: str
+    semesta: tuple
+    himpunan: list = field(default_factory=list)
+
+    def fuzzifikasi(self, nilai):
+        """Mengembalikan {label: derajat keanggotaan} untuk satu nilai crisp."""
+        lo, hi = self.semesta
+        if not lo <= nilai <= hi:
+            raise ValueError(
+                f"Nilai {nilai} di luar semesta {self.nama} [{lo}, {hi}]"
+            )
+        return {h.label: float(h.mu(nilai)) for h in self.himpunan}
+
+
+# --- Definisi variabel sesuai tabel desain pada laporan ----------------------
+LATENSI = VariabelLinguistik(
+    "Latensi", "ms", (0, 300),
+    [
+        Himpunan("Rendah", "trap", (0, 0, 40, 100)),
+        Himpunan("Sedang", "tri", (60, 150, 240)),
+        Himpunan("Tinggi", "trap", (200, 260, 300, 300)),
+    ],
+)
+
+JITTER = VariabelLinguistik(
+    "Jitter", "ms", (0, 50),
+    [
+        Himpunan("Stabil", "trap", (0, 0, 5, 15)),
+        Himpunan("Moderat", "tri", (10, 20, 30)),
+        Himpunan("Tidak Stabil", "trap", (25, 35, 50, 50)),
+    ],
+)
+
+PACKET_LOSS = VariabelLinguistik(
+    "Packet Loss", "%", (0, 10),
+    [
+        Himpunan("Kecil", "trap", (0, 0, 0.5, 2)),
+        Himpunan("Sedang", "gauss", (3.0, 1.0)),   # (rata-rata, sigma)
+        Himpunan("Besar", "sig", (1.5, 5.0)),      # (kemiringan a, titik tengah c)
+    ],
+)
+
+KUALITAS = VariabelLinguistik(
+    "Kualitas Jaringan", "poin", (0, 100),
+    [
+        Himpunan("Buruk", "trap", (0, 0, 20, 40)),
+        Himpunan("Cukup", "tri", (30, 50, 70)),
+        Himpunan("Baik", "tri", (60, 75, 90)),
+        Himpunan("Sangat Baik", "trap", (80, 90, 100, 100)),
+    ],
+)
+
+VARIABEL_INPUT = {
+    "Latensi": LATENSI,
+    "Jitter": JITTER,
+    "Packet Loss": PACKET_LOSS,
+}
+VARIABEL_OUTPUT = {"Kualitas Jaringan": KUALITAS}
+SEMUA_VARIABEL = {**VARIABEL_INPUT, **VARIABEL_OUTPUT}
+
+
+# =============================================================================
+# 3. FUZZIFIKASI
+# =============================================================================
+def fuzzifikasi(input_dict):
+    """
+    Menerima {'Latensi': 80, 'Jitter': 12, 'Packet Loss': 2.5} dan
+    mengembalikan {'Latensi': {'Rendah': .., ...}, 'Jitter': {...}, ...}.
+    """
+    hasil = {}
+    for nama, nilai in input_dict.items():
+        if nama not in VARIABEL_INPUT:
+            raise KeyError(f"Variabel input '{nama}' tidak dikenal")
+        hasil[nama] = VARIABEL_INPUT[nama].fuzzifikasi(nilai)
+    return hasil
+
+
+def label_dominan(derajat):
+    """Label dengan derajat keanggotaan tertinggi (dan nilainya)."""
+    label = max(derajat, key=derajat.get)
+    return label, derajat[label]
+
+
+# =============================================================================
+# 4. VALIDASI OVERLAP (syarat: kurva bersebelahan tumpang tindih tanpa celah)
+# =============================================================================
+def cek_overlap(var, resolusi=20001):
+    """
+    Dua pemeriksaan:
+    (a) Tidak ada celah  : di setiap titik semesta, max mu > 0.
+    (b) Overlap berurutan: tiap pasangan label bersebelahan punya titik
+        dengan mu keduanya > 0 secara bersamaan.
+    Mengembalikan (lolos: bool, daftar pesan).
+    """
+    x = np.linspace(var.semesta[0], var.semesta[1], resolusi)
+    mu = np.array([h.mu(x) for h in var.himpunan])
+    pesan, lolos = [], True
+
+    if mu.max(axis=0).min() <= 0:
+        lolos = False
+        pesan.append("Ada celah: terdapat titik dengan semua mu = 0")
+
+    for i in range(len(var.himpunan) - 1):
+        beririsan = np.minimum(mu[i], mu[i + 1])
+        tinggi = beririsan.max()
+        a, b = var.himpunan[i].label, var.himpunan[i + 1].label
+        if tinggi <= 1e-3:
+            lolos = False
+            pesan.append(f"{a} dan {b} TIDAK overlap")
+        else:
+            x_potong = x[beririsan.argmax()]
+            pesan.append(
+                f"{a} & {b}: overlap, titik potong x = {x_potong:.2f}, mu = {tinggi:.3f}"
+            )
+    return lolos, pesan
+
+
+# =============================================================================
+# 5. VISUALISASI
+# =============================================================================
+WARNA = ["#2E86AB", "#F6A01A", "#C0392B", "#27AE60"]
+
+
+def _gambar_variabel(ax, var, titik=None):
+    x = np.linspace(var.semesta[0], var.semesta[1], 1000)
+    for i, h in enumerate(var.himpunan):
+        y = h.mu(x)
+        ax.plot(x, y, lw=2.2, color=WARNA[i % len(WARNA)], label=h.label)
+        ax.fill_between(x, y, alpha=0.12, color=WARNA[i % len(WARNA)])
+    if titik is not None:
+        ax.axvline(titik, ls="--", color="gray", lw=1)
+    ax.set_xlim(*var.semesta)
+    ax.set_ylim(-0.02, 1.08)
+    ax.set_xlabel(f"{var.nama} ({var.satuan})")
+    ax.set_ylabel("Derajat keanggotaan  μ(x)")
+    ax.set_title(f"Fungsi Keanggotaan: {var.nama}", fontweight="bold")
+    ax.grid(alpha=0.3)
+    ax.legend(loc="upper center", fontsize=9, ncol=len(var.himpunan),
+              framealpha=0.9, bbox_to_anchor=(0.5, -0.18))
+
+
+def plot_variabel(var, folder=DIR_GAMBAR):
+    """Simpan grafik satu variabel ke PNG. Mengembalikan path file."""
+    os.makedirs(folder, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    _gambar_variabel(ax, var)
+    fig.tight_layout()
+    nama_file = "mf_" + var.nama.lower().replace(" ", "_") + ".png"
+    path = os.path.join(folder, nama_file)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def plot_semua(folder=DIR_GAMBAR):
+    """Grafik gabungan 4 variabel (2x2)."""
+    os.makedirs(folder, exist_ok=True)
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    for ax, var in zip(axes.ravel(), SEMUA_VARIABEL.values()):
+        _gambar_variabel(ax, var)
+    fig.suptitle("Desain Fungsi Keanggotaan - Penilaian Kualitas Jaringan (QoS)",
+                 fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    path = os.path.join(folder, "mf_gabungan.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def plot_titik_uji(kasus, folder=DIR_GAMBAR):
+    """Grafik tiap input dengan garis vertikal nilai uji tiap kasus."""
+    os.makedirs(folder, exist_ok=True)
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.4))
+    for ax, (nama, var) in zip(axes, VARIABEL_INPUT.items()):
+        _gambar_variabel(ax, var)
+        for no, (_, data) in enumerate(kasus, start=1):
+            ax.axvline(data[nama], ls=":", color="black", lw=1)
+            ax.text(data[nama], 1.03, str(no), ha="center", fontsize=8,
+                    fontweight="bold")
+        ax.set_title(f"{var.nama}: posisi 8 data uji", fontweight="bold")
+    fig.tight_layout()
+    path = os.path.join(folder, "titik_uji.png")
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+# =============================================================================
+# 6. DATA UJI (8 skenario: ideal, normal, transisi, puncak, gangguan,
+#    ekstrem bawah, ekstrem atas, dan titik batas parameter)
+# =============================================================================
+KASUS_UJI = [
+    ("Jaringan Fiber Ideal",      {"Latensi": 20,  "Jitter": 2,    "Packet Loss": 0.2}),
+    ("Jaringan Kampus Normal",    {"Latensi": 45,  "Jitter": 8,    "Packet Loss": 1.0}),
+    ("Kondisi Transisi",          {"Latensi": 80,  "Jitter": 12.5, "Packet Loss": 4.5}),
+    ("Wi-Fi Padat Jam Puncak",    {"Latensi": 150, "Jitter": 20,   "Packet Loss": 3.0}),
+    ("Gangguan Berat",            {"Latensi": 240, "Jitter": 35,   "Packet Loss": 7.0}),
+    ("Kasus Ekstrem Bawah",       {"Latensi": 0,   "Jitter": 0,    "Packet Loss": 0.0}),
+    ("Kasus Ekstrem Atas",        {"Latensi": 300, "Jitter": 50,   "Packet Loss": 10.0}),
+    ("Titik Batas Parameter",     {"Latensi": 100, "Jitter": 15,   "Packet Loss": 2.0}),
+]
+
+
+def format_derajat(derajat):
+    return ", ".join(f"{k}: {v:.2f}" for k, v in derajat.items())
+
+
+def jalankan_pengujian(kasus=KASUS_UJI):
+    baris = []
+    for no, (nama_kasus, data) in enumerate(kasus, start=1):
+        hasil = fuzzifikasi(data)
+        dom = {n: label_dominan(d) for n, d in hasil.items()}
+        baris.append({"no": no, "kasus": nama_kasus, "input": data,
+                      "derajat": hasil, "dominan": dom})
+    return baris
+
+
+def simpan_csv(baris, path):
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["No", "Kasus", "Latensi (ms)", "Jitter (ms)", "Packet Loss (%)",
+                    "Derajat Latensi", "Derajat Jitter", "Derajat Packet Loss"])
+        for b in baris:
+            w.writerow([b["no"], b["kasus"],
+                        b["input"]["Latensi"], b["input"]["Jitter"],
+                        b["input"]["Packet Loss"],
+                        format_derajat(b["derajat"]["Latensi"]),
+                        format_derajat(b["derajat"]["Jitter"]),
+                        format_derajat(b["derajat"]["Packet Loss"])])
+
+
+# =============================================================================
+# 7. PROGRAM UTAMA
+# =============================================================================
+def main():
+    print("=" * 70)
+    print("VALIDASI OVERLAP KURVA")
+    print("=" * 70)
+    semua_lolos = True
+    for var in SEMUA_VARIABEL.values():
+        lolos, pesan = cek_overlap(var)
+        semua_lolos &= lolos
+        print(f"[{'OK' if lolos else 'GAGAL'}] {var.nama}")
+        for p in pesan:
+            print("      -", p)
+    print("Hasil keseluruhan:", "SEMUA LOLOS" if semua_lolos else "ADA YANG GAGAL")
+
+    print("\n" + "=" * 70)
+    print("VISUALISASI")
+    print("=" * 70)
+    for var in SEMUA_VARIABEL.values():
+        print("Tersimpan:", plot_variabel(var))
+    print("Tersimpan:", plot_semua())
+    print("Tersimpan:", plot_titik_uji(KASUS_UJI))
+
+    print("\n" + "=" * 70)
+    print("HASIL FUZZIFIKASI")
+    print("=" * 70)
+    baris = jalankan_pengujian()
+    for b in baris:
+        print(f"\n[{b['no']}] {b['kasus']}  -> {b['input']}")
+        for nama, d in b["derajat"].items():
+            lab, nilai = b["dominan"][nama]
+            print(f"    {nama:<12}: {format_derajat(d)}   | dominan: {lab} ({nilai:.2f})")
+    path_csv = os.path.join(DIR_KELUARAN, "hasil_fuzzifikasi.csv")
+    simpan_csv(baris, path_csv)
+    print("\nTersimpan:", path_csv)
+
+
+if __name__ == "__main__":
+    main()
